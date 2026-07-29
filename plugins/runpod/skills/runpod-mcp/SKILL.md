@@ -6,8 +6,8 @@ description: >-
   the Runpod MCP server's structured tool calls. Use when the Runpod MCP tools
   (create-pod, list-endpoints, …) are connected in this session, or to connect
   them (hosted OAuth or local npx). Prefer this over runpodctl for plain infra
-  CRUD when MCP is available; use runpodctl for the terminal, Hub deploys, file
-  transfer, or SSH setup.
+  CRUD when MCP is available; use runpodctl for the terminal, file transfer, or
+  SSH setup.
 allowed-tools: Bash(npx:*), Bash(claude:*)
 compatibility: Linux, macOS, Windows
 metadata:
@@ -49,12 +49,15 @@ server directly:
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"probe","version":"0"}}}' \
 | curl -s -X POST https://mcp.getrunpod.io/ -H "Content-Type: application/json" \
     -H "Accept: application/json, text/event-stream" -H "Authorization: Bearer $RUNPOD_API_KEY" -d @-
-# → serverInfo.version e.g. "2.0.0 [RUNPOD_REST_VERSION=v2]"  (verified 2026-07-14)
+# → serverInfo.version e.g. "3.0.0 [RUNPOD_REST_VERSION=v2]"  (verified 2026-07-29)
 ```
 
-The MCP server drives Runpod's **REST v2** internally (`RUNPOD_REST_VERSION=v2`), so it
-handles infra correctly where the **public `rest.runpod.io/v1`** control API is buggy —
-notably CPU serverless endpoints (see the runpodctl skill).
+The MCP server drives Runpod's **REST v2** internally (`RUNPOD_REST_VERSION=v2`), so most
+tools avoid the buggy **public `rest.runpod.io/v1`** control API. Two exceptions worth
+knowing: the Hub, public-endpoint and `set-endpoint-gpus` tools go through GraphQL (so they
+work under either REST version), and **CPU serverless endpoints are not creatable through
+MCP** — v2 has no CPU-endpoint concept at all (`create-endpoint` requires `gpuPoolIds`), so
+use `runpodctl serverless create --compute-type CPU` for those.
 
 **Prefer MCP or `runpodctl` over hand-rolled `rest.runpod.io/v1` calls for creating endpoints.**
 
@@ -63,14 +66,21 @@ notably CPU serverless endpoints (see the runpodctl skill).
 Structured tools, grouped by resource:
 
 - **Pods** — list, get, create, update, start, stop, restart, delete, stream logs.
-- **Serverless endpoints** — list, get, create, update, delete; list workers; list releases.
+- **Serverless endpoints** — list, get, create, update, delete; list workers; list releases; stream worker logs. To pin a specific GPU **SKU** on an existing endpoint use `set-endpoint-gpus`; `create-endpoint`/`update-endpoint` expose only `gpuPoolIds` and can't express a SKU (`deploy-hub-repo` can pin one at deploy time via `gpuIds` exclusions).
 - **Jobs (serverless runtime)** — run, runsync, status, stream, cancel, retry, health, purge queue.
+- **Hub** — `list-hub-repos` (public catalog of prebuilt Serverless workers and Pod templates: vLLM, ComfyUI, …) and `deploy-hub-repo`, which deploys a repo's listed release as an endpoint — the same as clicking Deploy on the Hub.
+- **Public endpoints** — `list-public-endpoints`: managed pay-per-use model APIs (text/image/video/audio) that need no deployment. Call the returned endpointId with `run-endpoint`/`runsync-endpoint`.
 - **Templates** — list, get, create, update, delete.
-- **Network volumes** — list, get, create, update, delete. ⚠️ `create-network-volume` takes only name/size/dataCenter — it **can't set the storage tier**, so it always gets the data center's default. For a **High-Performance** volume use the console or a raw v2 REST call (`POST https://v2-rest.runpod.io/v2/network-volumes` with `"type":"HIGH_PERFORMANCE"`); see golden path 21.
-- **Container registry auth** — list, get, create, delete.
+- **Network volumes** — list, get, create, update, delete. `create-network-volume` takes `volumeType` (`STANDARD` | `HIGH_PERFORMANCE`) and a size of 10–4096 GB; omit `volumeType` to get the data center's default tier. The tier is **immutable after creation** — `update-network-volume` can't change it.
+- **Container registry auth** — list, get, create, delete. A username + password for **any** registry; pass the resulting id as `containerRegistryAuthId` on create-pod/create-endpoint.
+- **ECR delegations** (`list-`/`create-`/`delete-registry-delegation`) — **AWS ECR only**, v2 only, and stores no credentials: you register a repository ARN and Runpod gets scoped pull access instead. Prefer it over a stored username/password for ECR. The reply carries a `dockerRegistryUri` — that's the image URI to deploy with.
 - **Catalog** — list/get GPU types, list/get CPU types, list/get data centers.
-- **Tags** — list, get, create, update, delete; attach/detach to resources.
 - **Billing** — scoped usage/cost breakdowns (`get-billing`).
+
+> The tool list above is a map, not a contract. The server is the source of truth —
+> `/mcp` (or your client's tool list) shows exactly what the connected version exposes,
+> and each tool carries its own parameter descriptions. Check there before assuming a
+> capability exists or doesn't.
 
 > Delete tools (`delete-template`, `delete-pod`, …) can return `isError: true` with
 > "Unexpected end of JSON input" **even on success** — the Runpod REST API returns
@@ -81,15 +91,15 @@ Structured tools, grouped by resource:
 
 - **Use runpod-mcp** when the tools are connected AND the task is infra CRUD or a
   serverless job call the server exposes. Cap large job/log output to a file.
-- **Use runpodctl instead** for: anything MCP has no tool for — **Hub**
-  browse/deploy, **`send`/`receive`** file transfer, **SSH** key management,
-  **`doctor`** setup, **model cache** — or any shell-only agent, or when the user
-  wants a reproducible command.
-- **Hand pod creation to runpodctl** when it needs a capability MCP's create-pod
-  lacks: **from a template** (`--template-id`), a **CPU** pod (`--compute-type
-  cpu`), or a **multi-GPU priority list**. MCP's v2 create-pod requires an image
-  and takes a single GPU type — fine for a simple one-image/one-GPU pod, but defer
-  the richer cases even when MCP is connected.
+- **Use runpodctl instead** for: **`send`/`receive`** file transfer, **SSH** key
+  management, **`doctor`** setup, **model cache** — or any shell-only agent, or
+  when the user wants a reproducible command.
+- **Hand pod creation to runpodctl** for a **multi-GPU priority list** (MCP's v2
+  create-pod takes one GPU type; extra `gpuTypeIds` are dropped with a `_warning`
+  on success), or for a **template + CPU** pod together — `create-pod` rejects that
+  combination, since a template deploy is GPU-and-v2-only. Each alone is fine in
+  MCP: `templateId` (v2-only, `imageName` then optional, and each field you pass
+  replaces the template's whole value rather than merging) or `computeType: "CPU"`.
 - **Not this lane:** writing/deploying your own Python (→ flash); downloading
   models or building/pushing images (→ companion-clis).
 
