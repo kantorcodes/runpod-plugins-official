@@ -23,6 +23,12 @@ so an MCP-capable agent can manage infrastructure without shelling out. It is th
 same Runpod REST API that `runpodctl` uses — pick MCP when its tools are
 connected (typed params, structured errors, no shell quoting).
 
+**For a multi-step job, read the worked example before calling tools.** Tool calls are easy
+to issue and easy to issue in the wrong order — the verified end-to-end sequences live in
+[runpod/golden-paths/README.md](../runpod/golden-paths/README.md) (image → template →
+endpoint, pod → volume → serverless, multi-region, autoscaling, monitoring). This skill
+covers what each tool does; the paths cover what order to do them in and what it costs.
+
 ## Connect
 
 Connect the hosted server with **your API key as a Bearer header** if you also use runpodctl/flash — that one key auths the MCP *and* the CLIs (the 80% path):
@@ -67,6 +73,7 @@ Structured tools, grouped by resource:
 
 - **Pods** — list, get, create, update, start, stop, restart, delete, stream logs.
 - **Serverless endpoints** — list, get, create, update, delete; list workers; list releases; stream worker logs.
+  - **Logs are no longer an MCP-only capability** — runpodctl grew `pod logs` and `serverless logs` in v2.10.0. MCP still returns already-parsed, bounded frames, which is the easier shape inside an agent; reach for the CLI when you are shell-only or want `--follow`. Job *output* streaming (`stream-job`) remains MCP-only.
   - `create-endpoint` takes `endpointType: QUEUE` (default) or `LOAD_BALANCER` — see golden path 14. The routing type is fixed at creation; `update-endpoint` cannot change it.
   - Read an endpoint's invoke URLs from `requestUrls` on the get/list reply instead of assembling them.
   - To pin a specific GPU **SKU** on an existing endpoint use `set-endpoint-gpus`; `create-endpoint`/`update-endpoint` expose only `gpuPoolIds` and can't express a SKU (`deploy-hub-repo` can pin one at deploy time via `gpuIds` exclusions).

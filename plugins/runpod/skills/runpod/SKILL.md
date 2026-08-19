@@ -3,9 +3,10 @@ name: runpod
 description: >-
   Start here for any Runpod task — running GPU/CPU pods, deploying serverless
   endpoints, templates, network volumes, building images, or understanding how
-  Runpod works. Routes the request to the right Runpod skill (runpod-mcp,
-  runpodctl, flash, companion-clis, or runpod-usage). Use when it is unclear
-  which Runpod skill applies.
+  Runpod works. Routes to the right skill (runpod-mcp, runpodctl, flash,
+  companion-clis, runpod-usage, runpod-migrate) and indexes two dozen live-verified
+  end-to-end examples (golden paths) — use it when the lane is unclear, and for any
+  multi-step or provisioning task even when it is not.
 metadata:
   author: runpod
   version: "1.2.0" # x-release-please-version
@@ -15,7 +16,9 @@ license: Apache-2.0
 # Runpod (router)
 
 The entrypoint for the Runpod skills. This skill does no work itself — it picks
-the right lane and hands off. Read the matching skill's `SKILL.md` next.
+the right lane and hands off. For a multi-step or provisioning task, check the
+[worked examples](#worked-examples-golden-paths) first and let the matching one pick
+the lane; otherwise read the matching skill's `SKILL.md` next.
 
 ## The lanes
 
@@ -27,6 +30,26 @@ the right lane and hands off. Read the matching skill's `SKILL.md` next.
 | **companion-clis** | **Prerequisite artifacts**: download a model (`hf`), build/push an image (`docker`), repos/releases (`gh`), move data to a network volume over S3 (`aws`). |
 | **runpod-usage** | **Understand** how Runpod works before acting — pods vs serverless, building a container, storage, GPU selection, gotchas. Knowledge only. |
 | **runpod-migrate** | **Move existing code** off the GraphQL API or REST v1 onto REST v2 — inventory which parts use which version, rewrite call sites, flag breaking changes. Edits the user's code; does not manage infra. |
+
+## These skills are a snapshot; the tools are the source of truth
+
+Every lane below wraps something that ships on its own release train and moves faster than
+this repo. So route with these skills, but **take capability and syntax from the tool in front
+of you**:
+
+| Lane | Ask it directly |
+| --- | --- |
+| runpodctl | `runpodctl --help`, `runpodctl <resource> <action> --help`, `runpodctl version`. For failure shapes, run a command wrong on purpose and read the JSON |
+| runpod-mcp | your client's tool list (`/mcp` in Claude Code) — each tool carries its own parameter descriptions |
+| flash | `flash --help`, and the deploy/dev output |
+| companion-clis | that CLI's own `--help` (`hf`, `gh`, `docker`, `aws`) |
+| REST v2 | the live spec at `https://api.runpod.io/v2/openapi.json` |
+
+**Never tell a user a tool cannot do something without checking first.** A missing capability
+is the claim most likely to be out of date here, and it is the one a reader has no reason to
+reverify — it has already gone stale twice (runpodctl v2.9.0 added `serverless health`, v2.10.0
+added `pod logs`/`serverless logs`). If a limit still holds, name the version it holds for
+rather than saying "cannot".
 
 ## First run — check auth before the first infra action
 
@@ -58,6 +81,24 @@ before any CLI-only step. Missing a CLI? `curl -sSL https://cli.runpod.net | bas
 [`runpod-usage/reference/getting-started.md`](../runpod-usage/reference/getting-started.md).
 
 ## How to route
+
+**0. Does a worked example already cover this?** For anything beyond a single call,
+check [the golden-paths index](#worked-examples-golden-paths) *before* picking a lane —
+a matching path already names the lane(s), the flags, the ordering, and the traps, so
+routing becomes reading rather than re-deriving. Check it when **any** of these is true:
+
+- the task needs **more than one resource** (image + template + endpoint, pod + volume,
+  multi-region, …) or **more than one lane**
+- it **provisions something billable**, or the user's ask is shaped like *"get X running /
+  deployed / working"*
+- it involves **storage, networking, autoscaling, streaming, or debugging a live resource** —
+  the areas where the non-obvious ordering is the whole difficulty
+- you are about to write a **multi-step plan** for it
+
+Skip step 0 for a single read or a single CRUD call ("list my pods", "stop pod X",
+"what GPUs are available") — go straight to the lane. **A matching golden path outranks
+this router's lane table**: it was verified end to end on a real account, so where the two
+disagree, follow the path and treat the difference as a bug worth reporting.
 
 1. **Conceptual question, or an unmade design choice** (serverless vs pod? which
    GPU? bake the model or mount a volume?) → read **runpod-usage** first, then
@@ -98,7 +139,8 @@ Capability matrix (pick the preferred lane per operation):
 | Create a pod with a **multi-GPU priority list**, or **template + CPU together** | **runpodctl** | MCP narrows to one GPU type, and rejects a template deploy for a CPU pod |
 | Deploy from the **Hub** | **runpod-mcp** if connected, else runpodctl | MCP has `list-hub-repos` + `deploy-hub-repo` |
 | **File transfer** (`send`/`receive`), **SSH** keys/info, **`doctor`** setup, **model** cache | **runpodctl** | MCP has no tool for these |
-| Invoke a serverless job (`run`/`runsync`/status/stream) | **runpod-mcp** if connected, else runpodctl | MCP has first-class job tools |
+| Invoke a serverless job (`run`/`runsync`/status/stream) | **runpod-mcp** if connected, else runpodctl | Both lanes have first-class job commands now (runpodctl `serverless run`/`status`/`health`, v2.9.0+); MCP is typed, and only MCP streams a job's incremental output (`stream-job`) |
+| Read **pod or worker logs** | **either** — runpod-mcp if connected, else runpodctl | Both lanes read them: MCP `stream-pod-logs`/`stream-worker-logs` return parsed frames; runpodctl `pod logs`/`serverless logs` emit json lines and `--follow` (v2.10.0+) |
 
 Rule of thumb: **default to MCP for the easy stuff, hand off to runpodctl the
 moment an op needs a flag/feature MCP doesn't expose.**
@@ -125,10 +167,16 @@ It branches to two sub-loops:
 
 ## Worked examples (golden paths)
 
-**Two dozen** end-to-end scenarios (nearly all **live-verified**) live in
-[`./golden-paths/README.md`](./golden-paths/README.md) — the yardstick for "can
-an agent finish the job", with real commands + observed output to copy from. When a
-task matches one, **open its golden path first** instead of re-deriving it:
+This is **step 0 of routing**, not an appendix. Two dozen end-to-end scenarios
+(nearly all **live-verified on a real account**) live in
+[`./golden-paths/README.md`](./golden-paths/README.md), with the real commands and the
+observed output to copy from — plus a Gotchas and a Cost & cleanup section each, which
+is the part that is expensive to rediscover.
+
+**Match the task to a row below and open that path before you plan or call anything.**
+A partial match is still worth opening: the closest path's ordering and gotchas usually
+transfer even when the model, GPU, or region does not. Only fall through to the lane
+tables above when nothing here is close.
 
 | Want to… | Golden path |
 | --- | --- |
@@ -142,6 +190,7 @@ task matches one, **open its golden path first** instead of re-deriving it:
 | **Custom serverless when flash isn't enough** (dual-mode image dev loop) | [09](./golden-paths/09-custom-serverless-dev-loop/README.md) |
 | Build a minimal image for a target (pod vs serverless queue) | [22 (pod)](./golden-paths/22-minimal-pod-image/README.md), [23 (queue)](./golden-paths/23-minimal-queue-image/README.md); concepts in [building-images](../runpod-usage/reference/building-images.md) |
 | Decide what to bake into the image vs mount on a network volume | [25 — bake vs mount](./golden-paths/25-bake-vs-mount/README.md) |
+| Pick a network-volume **storage tier** (standard vs high-performance) | [21 — storage tiers](./golden-paths/21-storage-tiers.md) |
 | **High availability / multi-region** serverless (multi-volume + data sync) | [10](./golden-paths/10-multi-region-ha-serverless.md), [19 (3-region)](./golden-paths/19-three-region-same-file.md) |
 | Stream output incrementally (`/stream`) | [12](./golden-paths/12-serverless-streaming.md) |
 | Tune autoscaling / raise per-worker throughput | [13 (autoscaling)](./golden-paths/13-autoscaling-tuning.md), [18 (concurrency)](./golden-paths/18-concurrent-handler.md) |
