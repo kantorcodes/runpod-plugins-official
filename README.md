@@ -5,7 +5,7 @@ pods, serverless endpoints, jobs, templates, and volumes — via the Runpod MCP
 server, `runpodctl`, and `flash`.
 
 This repo ships **one plugin**, [`runpod`](plugins/runpod/), that bundles a router
-plus six skills, the hosted Runpod MCP server config, and worked golden paths.
+plus seven skills, the hosted Runpod MCP server config, and worked golden paths.
 
 **Compatibility:** installs as a native plugin in **Claude Code, Codex, Gemini,
 and opencode** (with auto-update), and as skills via **skills.sh** for Cursor,
@@ -45,7 +45,7 @@ That's it. Notes:
 ## Install
 
 Same repo, one manifest — pick your agent below. Every route installs the same
-router + six skills, plus a hosted **Runpod MCP server** for control-plane tools.
+router + seven skills, plus a hosted **Runpod MCP server** for control-plane tools.
 Then [authenticate](#authentication).
 
 ### Claude Code
@@ -175,10 +175,34 @@ Start with the **`runpod`** router; it points at the right lane.
 | [`flash`](plugins/runpod/skills/flash/SKILL.md) | **Write and deploy your own code** on Runpod serverless (`@remote`). |
 | [`companion-clis`](plugins/runpod/skills/companion-clis/SKILL.md) | Prerequisite CLIs: `hf`, `docker`, `gh`, `aws`. |
 | [`runpod-usage`](plugins/runpod/skills/runpod-usage/SKILL.md) | **Concepts** — pods/serverless, containers, storage, GPU selection, gotchas. |
+| [`runpod-migrate`](plugins/runpod/skills/runpod-migrate/SKILL.md) | **Migrate code** from the GraphQL API or REST v1 to REST v2. |
 
 See the plugin's [README](plugins/runpod/README.md) for the full guide, the
 development loop, and setup. Worked end-to-end examples live in
 [`plugins/runpod/skills/runpod/golden-paths/`](plugins/runpod/skills/runpod/golden-paths/).
+
+## Ask for it by name
+
+Plain English works for one-off actions. For anything you're **designing**, add one
+clause — *"and look at the examples first"*:
+
+- *"Use the Runpod plugin skills and look at the examples. I want to build a speech
+  translator: audio in, translated text out. Plan it out."*
+- *"Use the runpod-migrate skill to move this repo from GraphQL to REST v2. Show me
+  the inventory before you change anything."*
+- *"Use the Runpod skills and check the examples — deploy this handler to serverless."*
+- *"Use the Runpod skills — cheapest GPU that fits a 13B model?"*
+- *"Use the Runpod skills and check the examples — my endpoint returns `IN_QUEUE` forever."*
+
+You don't need to know which example applies; the agent picks. Worth adding either
+way: *"show me the plan before you change anything"* and *"verify it with a real
+request"* ("Running" is not "ready").
+
+**Why the extra clause helps.** Skills auto-load from their description, but the
+[golden paths](plugins/runpod/skills/runpod/golden-paths/) deliberately have **no
+`SKILL.md`**, so agents never load them on their own — and each skill's
+`reference/*.md` opens only on demand. Asking is what pulls them in, and they're
+where the commands that were actually run against a real account live.
 
 ## Repository layout
 

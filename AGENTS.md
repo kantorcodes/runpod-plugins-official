@@ -28,10 +28,13 @@ plugins/runpod/                   THE plugin
   gemini-extension.json           Gemini manifest
   .mcp.json                       hosted Runpod MCP server config
   README.md  CHANGELOG.md
-  skills/                         the six skills (below)
+  skills/                         the seven skills (below)
   golden-paths/                   worked end-to-end reference tasks (no SKILL.md)
-hooks/                            validate_marketplace / check_versions / check_runpod_branding / check_links
+hooks/                            validate_marketplace / check_versions / check_runpod_branding / check_links / check_migrate_scanner / check_migrate_tables / check_migrate_class3
+testdata/runpod-migrate/          fixture repos the scanner regression check runs against
+testdata/runpod-migrate/v2-openapi.json   vendored v2 spec snapshot the two spec checks gate against
 .github/workflows/validate.yml    runs the hooks on PRs
+.github/workflows/spec-drift.yml  weekly, non-blocking: the same spec checks against the live API
 ```
 
 ## Architecture: a router + lanes
@@ -48,6 +51,8 @@ skills/flash/             write & deploy your own code on Runpod serverless (@re
 skills/companion-clis/    prerequisite CLIs (hf, gh, docker, aws)
 skills/runpod-usage/      conceptual knowledge ("how Runpod works") — not a tool
   reference/*.md          detailed topics, loaded on demand
+skills/runpod-migrate/    migrate a codebase from GraphQL / REST v1 to REST v2
+  scripts/                the API-version inventory scanner
 ```
 
 **runpod-mcp and runpodctl overlap** — both drive the same Runpod REST API for the
@@ -108,11 +113,24 @@ editing the repo. Each is its own checkable rule.
    - The per-path verification status is authoritative in `golden-paths/README.md`'s Status
      column; do not restate it in AGENTS.md (it drifts).
 6. **Evals** — add or update an `evals/*.eval.md` when you add or change routing/behavior.
-7. **Releases** —
+7. **The runpod-migrate scanner** — `rp_api_inventory.py` is the one executable in this
+   repo, and its signal table is interacting regexes where a one-line edit breaks a
+   distant case. When you change it, run `python3 hooks/check_migrate_scanner.py`, and
+   add a corpus under `testdata/runpod-migrate/` plus an assertion for any new behavior.
+   Every existing assertion corresponds to a defect that actually shipped — do not
+   delete one to make the build green.
+8. **runpod-migrate's factual claims about v2** — the reference tables assert concrete
+   paths, and the Class-3 table asserts that capabilities are *absent*. Both are checked
+   against `testdata/runpod-migrate/v2-openapi.json` by `check_migrate_tables.py` and
+   `check_migrate_class3.py`. When a check fails, fix the doc; refresh the snapshot only
+   when v2 genuinely changed, and re-read the affected rows when you do. A wrong Class-3
+   row is worse than a wrong rename: SKILL.md tells the agent to stop and ask the user
+   about those, so it buys an interruption over a decision that does not exist.
+9. **Releases** —
    - Never hand-bump versions; release-please cuts the release (see `CONTRIBUTING.md` →
      Cutting a release).
    - Use Conventional Commits.
-8. **Skill body size** — put only a decision table plus the 80% patterns in a `SKILL.md` body;
+10. **Skill body size** — put only a decision table plus the 80% patterns in a `SKILL.md` body;
    move long tables and deep explanations into `reference/*.md` linked from the body.
 
 ## Conventions
